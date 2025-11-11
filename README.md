@@ -1,4 +1,4 @@
-# Mini Task API (88734065)
+# Mini Task API (88736065)
 
 โปรเจกต์นี้คือ RESTful API สำหรับระบบจัดการงาน (Task Management) ที่สร้างด้วย Express.js และ MySQL/MariaDB ตามโจทย์การบ้านวิชา 88734065
 
