@@ -19,13 +19,15 @@ router.use(authenticate, rateLimitByRole);
 
 // ---------------------- ROUTES ----------------------
 // 🟢 GET (อ่านทั้งหมด)
-router.get('/', checkTaskAccess('read'), getTasksV2);
+// Do not use checkTaskAccess here (no :id param). The controller itself filters by user role/owner/public.
+router.get('/', getTasksV2);
 
 // 🟢 GET (อ่านเฉพาะ ID)
 router.get('/:id', checkTaskAccess('read'), getTaskByIdV2);
 
 // 🟡 POST (สร้างใหม่)
-router.post('/', checkHighPriority, checkTaskAccess('write'), createTaskV2);
+// Do NOT check task access for creation — there is no task id yet, so the middleware would return NOT_FOUND.
+router.post('/', checkHighPriority, createTaskV2);
 
 // 🟠 PUT (แก้ไขทั้งหมด)
 router.put('/:id', checkTaskAccess('write'), updateTaskV2);

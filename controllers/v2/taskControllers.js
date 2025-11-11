@@ -35,7 +35,7 @@ export const getTasksV2 = async (req, res) => {
     }
 
     if (priority) {
-      query += ' AND piority = ?';
+      query += ' AND priority = ?';
       params.push(priority);
     }
 
@@ -106,7 +106,7 @@ export const createTaskV2 = async (req, res) => {
 
     // Insert
     const [result] = await pool.query(
-      'INSERT INTO tasks (title, description, status, piority, ownerId, assignedTo, isPublic) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO tasks (title, description, status, priority, ownerId, assignedTo, isPublic) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [title, description, status, priority, userId, assignedTo, isPublic]
     );
 
@@ -134,7 +134,7 @@ export const updateTaskV2 = async (req, res) => {
     }
 
     const [result] = await pool.query(
-      'UPDATE tasks SET title=?, description=?, status=?, piority=?, assignedTo=?, isPublic=? WHERE id=?',
+      'UPDATE tasks SET title=?, description=?, status=?, priority=?, assignedTo=?, isPublic=? WHERE id=?',
       [title, description, status, priority, assignedTo, isPublic, req.params.id]
     );
 
