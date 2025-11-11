@@ -2,26 +2,6 @@
 
 โปรเจกต์นี้คือ RESTful API สำหรับระบบจัดการงาน (Task Management) ที่สร้างด้วย Express.js และ MySQL/MariaDB ตามโจทย์การบ้านวิชา 88734065 
 
-## ✨ Features (ฟีเจอร์หลัก)
-
-**- API Versioning:** รองรับ `/api/v1` และ `/api/v2` (ที่ให้ response พร้อม metadata)
-
-**- Authentication:** ระบบ JWT (Access Token) พร้อม Hashing รหัสผ่าน (bcrypt) 
-
-**- Authorization (RBAC):** แบ่ง 3 Roles: `user`, `premium`, และ `admin` 
-
-**- Authorization (ABAC):** กำหนดสิทธิ์การเข้าถึง Task ตามเงื่อนไข (เช่น `isPublic`, `ownerId`, `isPremium`) 
-
-**- CRUD Operations:** จัดการข้อมูล Users และ Tasks 
-
-**- Rate Limiting:** จำกัดการใช้งานตาม Role (Anonymous, User, Premium) 
-
-**- Idempotency:** ป้องกันการสร้าง Task ซ้ำซ้อนด้วย `Idempotency-Key`
-
-**- Error Handling:** รูปแบบ Error Response ที่เป็นมาตรฐาน
-
-**- Filtering & Pagination:** ค้นหา Tasks ด้วย query params (เช่น `status`) 
-
 ## 🛠️ Tech Stack
 
 * Express.js 
@@ -45,7 +25,38 @@
 
 3.  **Setup Database:**
     * สร้าง Database ใน MySQL/MariaDB 
-    * (ถ้ามี) รันไฟล์ Migration หรือ SQL script เพื่อสร้างตาราง `Users` และ `Tasks`
+    ## 🗄️ Database Setup
+
+    1.  สร้าง Database ใน MySQL/MariaDB (เช่น ชื่อ `task_api_db`)
+    2.  รัน SQL query ด้านล่างนี้เพื่อสร้างตารางที่จำเป็น:
+
+        ```sql
+        -- 
+        CREATE TABLE IF NOT EXISTS Users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            password VARCHAR(255) NOT NULL,
+            role ENUM('user', 'premium', 'admin') NOT NULL DEFAULT 'user',
+            isPremium BOOLEAN DEFAULT false,
+            subscriptionExpiry DATETIME,
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 
+        CREATE TABLE IF NOT EXISTS Tasks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            status ENUM('pending', 'in_progress', 'completed') DEFAULT 'pending',
+            priority ENUM('low', 'medium', 'high') DEFAULT 'medium',
+            ownerId INT NOT NULL,
+            assignedTo INT,
+            isPublic BOOLEAN DEFAULT false,
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        );
+        ```
 
 4.  **Environment Variables:**
     * คัดลอกไฟล์ `.env.example` ไปเป็น `.env` 
@@ -59,5 +70,6 @@
     ```
 
 ## 🔑 Environment Variables
-
 ดูในไฟล์ `.env.example`  (ต้องมีตัวแปรสำหรับเชื่อมต่อ Database และ JWT Secrets)
+
+

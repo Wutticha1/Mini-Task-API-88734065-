@@ -18,8 +18,19 @@ const errorRes = (res, code, message, status, details = {}, path = '') => {
 export const getTasks = async(req, res) => {
     try {
         const { status, piority } = req.query;
+        const { role, userId } = req.user;
+
         let query = 'SELECT * FROM tasks WHERE 1=1';
         const params = [];
+
+        if (role === 'user') {
+            query += ' AND (ownerId = ? OR isPublic = 1)';
+            params.push(userId);
+        } else if (role === 'premium') {
+            query += ' AND (ownerId = ? OR isPublic = 1)';
+            params.push(userId);
+        }
+        
 
         if (status) {
             query += ' AND status = ?';
@@ -54,7 +65,11 @@ export const getTasks = async(req, res) => {
 
 export const getTaskById = async(req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+        const { userId, role } = req.user;
+        const taskId = req.params.id;
+
+        const [rows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [taskId]);
+        
         if(rows.length === 0){
             return errorRes(
                 res,
@@ -66,7 +81,21 @@ export const getTaskById = async(req, res) => {
             );
         }
 
-        res.json(rows[0])
+        const task = rows[0];
+
+        // check role
+        if (role !== 'admin' && task.ownerId !== userId && !task.isPublic) {
+            return errorRes(
+                res,
+                'FORBIDDEN',
+                'You are not allowed to view this task',
+                403,
+                {},
+                req.originalUrl
+            );
+        }
+
+        res.json(task);
 
     } catch(err) {
         console.error(err);
@@ -77,35 +106,26 @@ export const getTaskById = async(req, res) => {
 
 // ========================================== POST (Idempotent)====================================================
 
-// เก็บ key
-const usedKey = new Set();
-
 export const createTask = async(req, res) => {
     try {
-        const key = req.headers['idempotency-key'];
-        if (!key) {
-            return errorRes(
-                res,
-                'MISSING IDEMPOTENCY-KEY HEADER',
-                'Missing Idempotency-Key Header',
-                400,
-                {},
-                req.originalUrl
-            );
-        } 
+        
+        const { title, description, status, priority, assignedTo, isPublic } = req.body;
+        const { isPremium, userId } = req.user;
 
-        if(usedKey.has(key)) {
+        if(priority === 'high' && !isPremium) {
             return errorRes(
                 res,
-                'DUPLICATE REQUEST',
-                'Idempotency-Key already used',
-                409,
+                'FORBIDDEN',
+                'Only premium users can create high priority tasks',
+                403,
                 {},
                 req.originalUrl
             );
         }
 
-        const { title, description, status, priority, ownerId, assignedTo, isPublic } = req.body;
+        // Idempotency-Key already handled by middleware
+        const idempotencyKey = req.headers['idempotency-key'];
+
         // ✅ 1. ตรวจช่องว่าง
         if (!title || title.trim() === '') {
         return errorRes(
@@ -145,12 +165,10 @@ export const createTask = async(req, res) => {
         }
 
         const [result] = await pool.query(
-            `INSERT INTO tasks (title, description, status, piority, ownerId, assignedTo, isPublic)
+            `INSERT INTO tasks (title, description, status, priority, ownerId, assignedTo, isPublic)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [title, description, status, priority, ownerId, assignedTo, isPublic]
+            [title, description, status, priority, userId, assignedTo, isPublic]
         );
-
-        usedKey.add(key);
 
         // ✅ ดึงข้อมูลที่เพิ่ง insert กลับมา
         const [rows] = await pool.query(`SELECT * FROM tasks WHERE id = ?`, [result.insertId]);
@@ -171,66 +189,46 @@ export const createTask = async(req, res) => {
 // =========================================== PUT ================================================
 // (Full update)
 
-export const updateTask = async(req, res) => {
-    try {
-        const {title, description, status, priority, assignedTo, isPublic } = req.body;
-        
-        // check input 
-        if ( !title || !description || !status ) {
-            return errorRes(
-                res,
-                'VALIDATION_ERROR',
-                'Missing required fields',
-                400,
-                {
-                    title: !title ? 'Title is required' : undefined,
-                    description: !description ? 'Description is required' : undefined,
-                    status: !status ? 'Status is required' : undefined,
-                    priority: !priority ? 'Priority is required' : undefined,
-                    assignedTo: !assignedTo ? 'AssignedTo is required' : undefined,
-                    isPublic: !isPublic ? 'IsPublic is required' : undefined
-                },
-                req.originalUrl
-            );
-        }
+export const updateTask = async (req, res) => {
+  try {
+    const { title, description, status, priority, assignedTo, isPublic, ownerId } = req.body;
 
-        const [task] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
-        if (task.length === 0) {
-            return errorRes(
-                res,
-                'NOT_FOUND',
-                'Task not found',
-                404,
-                {},
-                req.originalUrl
-            );
-        }
-        
-        // update
-        await pool.query(
-            'UPDATE tasks SET title=?, description=?, status=?, piority=?, assignedTo=?, isPublic=? WHERE id=?',
-            [title, description, status, priority, assignedTo, isPublic, req.params.id]
-        );
-
-        const [updatedTask] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
-
-        res.json({ 
-            message: 'Task updated successfully', 
-            task: updatedTask[0]
-        });
-
-
-    } catch (err) {
-        console.error(err);
-        errorRes(
-            res,
-            'INTERNAL_SERVER_ERROR',
-            'Internal server error',
-            500,
-            { error: err.message },
-            req.originalUrl
-        );
+    // 1. ดึงข้อมูลเดิมของ task
+    const [tasks] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (tasks.length === 0) {
+      return errorRes(res, 'NOT_FOUND', 'Task not found', 404, {}, req.originalUrl);
     }
+
+    const task = tasks[0];
+
+    // 2. ใช้ค่าที่ส่งมา ถ้าไม่มีให้ใช้ของเดิม
+    const newTitle = title ?? task.title;
+    const newDescription = description ?? task.description;
+    const newStatus = status ?? task.status;
+    const newPriority = priority ?? task.priority;
+    const newAssignedTo = assignedTo ?? task.assignedTo;
+    const newIsPublic = isPublic ?? task.isPublic;
+    const newOwnerId = ownerId ?? task.ownerId;
+
+    // 3. Update เฉพาะค่าที่มีการเปลี่ยน
+    await pool.query(
+      `UPDATE tasks 
+       SET title=?, description=?, status=?, priority=?, assignedTo=?, isPublic=?, ownerId=? 
+       WHERE id=?`,
+      [newTitle, newDescription, newStatus, newPriority, newAssignedTo, newIsPublic, newOwnerId, req.params.id]
+    );
+
+    // 4. ดึงข้อมูลใหม่กลับไป
+    const [updatedTask] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+
+    res.json({
+      message: 'Task updated successfully',
+      task: updatedTask[0],
+    });
+  } catch (err) {
+    console.error(err);
+    errorRes(res, 'INTERNAL_SERVER_ERROR', 'Internal server error', 500, { error: err.message }, req.originalUrl);
+  }
 };
 
 // ====================================== PATCH ============================================
@@ -239,16 +237,28 @@ export const updateTask = async(req, res) => {
 export const updateTaskStatus = async(req, res) => {
     try {
         const { status } = req.body;
-        
+        const { userId, role } = req.user;
+        const taskId = req.params.id;
+         
         if (!status) {
             return res.status(400).json({ message: "Status is required" });
         }
 
-        const [ result ] = await pool.query(
-            'UPDATE tasks SET status=? WHERE id = ?', [status, req.params.id]
-        );
+      let rows;
+      try {
+            [rows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [taskId]);
+        } catch (err) {
+            return errorRes(
+                res,
+                'DB_QUERY_ERROR',
+                'Failed to fetch task from database',
+                500,
+                { error: err.message },
+                req.originalUrl
+            );
+        }
         
-        if (result.affectedRows === 0) {
+        if(rows.length === 0) {
             return errorRes(
                 res,
                 'TASK_NOT_FOUND',
@@ -258,8 +268,50 @@ export const updateTaskStatus = async(req, res) => {
                 req.originalUrl
             );
         }
-        
-        res.json({message: `Task status changed to '${status}'`});
+
+        const task = rows[0];
+
+        //   check authorize
+        if(String(task.ownerId) !== String(userId) && role !== 'admin') {
+            return errorRes(
+                res,
+                'FORBIDDEN',
+                'You do not have permission to access this resource',
+                403,
+                {},
+                req.originalUrl
+            );
+        }
+
+         // Update status
+        let result;
+        try {
+            [result] = await pool.query('UPDATE tasks SET status=? WHERE id=?', [status, taskId]);
+        } catch (err) {
+            return errorRes(
+                res,
+                'DB_UPDATE_ERROR',
+                'Failed to update task status',
+                500,
+                { error: err.message },
+                req.originalUrl
+            );
+        }
+
+        // ตรวจสอบว่ามี row ถูก update จริงหรือไม่
+        if (result.affectedRows === 0) {
+            return errorRes(
+                res,
+                'UPDATE_FAILED',
+                'Task status could not be updated',
+                500,
+                {},
+                req.originalUrl
+            );
+        }
+
+        res.json({ message: `Task status changed to '${status}'` });
+
 
     } catch (err) {
         console.error(err);
